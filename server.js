@@ -20,6 +20,7 @@ app.use('/webhook', express.raw({ type: 'application/json' }));
 
 // Verify webhook signature
 function verifySignature(payload, signature) {
+  console.log('Verifying signature... ' + APP_SECRET);
   const expectedSignature = crypto
     .createHmac('sha256', APP_SECRET)
     .update(payload)
@@ -53,6 +54,7 @@ app.get('/webhook', (req, res) => {
 
 // Webhook endpoint to receive lead data (POST request from Facebook)
 app.post('/webhook', (req, res) => {
+  console.log('Received webhook event:', req.body);
   const signature = req.get('X-Hub-Signature-256');
 
   // Verify the signature
