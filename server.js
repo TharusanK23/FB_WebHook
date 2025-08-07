@@ -87,7 +87,8 @@ app.post('/webhook', (req, res) => {
 // Handles messages events
 function handleMessage(senderPsid, receivedMessage) {
   let response;
-
+  console.log('Received message for user %d: %s', senderPsid, receivedMessage.text);
+  
   // Checks if the message contains text
   if (receivedMessage.text) {
     // Create the payload for a basic text message, which
