@@ -1,8 +1,8 @@
 const express = require('express');
-const crypto = require('crypto');
-const axios = require('axios');
-const path = require('path');
+const request = require('request');
+
 require("dotenv").config();
+const { urlencoded, json } = require('body-parser');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -13,10 +13,19 @@ const APP_SECRET = process.env.FB_APP_SECRET || 'your_app_secret_here';
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN || 'your_page_access_token_here';
 const PAGE_ID = process.env.FB_PAGE_ID || 'your_page_id_here';
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Parse application/x-www-form-urlencoded
+app.use(urlencoded({ extended: true }));
+
+// Parse application/json
+app.use(json());
+
+app.get('/', function (_req, res) {
+  res.send('Hello World');
+});
+// app.use(express.static(path.join(__dirname, 'public')));
 
 // Middleware to parse JSON and verify Facebook signature
-app.use('/webhook', express.raw({ type: 'application/json' }));
+// app.use('/webhook', express.raw({ type: 'application/json' }));
 
 // Webhook verification endpoint (GET request from Facebook)
 app.get('/webhook', (req, res) => {
