@@ -18,20 +18,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Middleware to parse JSON and verify Facebook signature
 app.use('/webhook', express.raw({ type: 'application/json' }));
 
-// Verify webhook signature
-function verifySignature(payload, signature) {
-  console.log('Verifying signature... ' + APP_SECRET);
-  const expectedSignature = crypto
-    .createHmac('sha256', APP_SECRET)
-    .update(payload)
-    .digest('hex');
-
-  return crypto.timingSafeEqual(
-    Buffer.from(`sha256=${expectedSignature}`, 'utf8'),
-    Buffer.from(signature, 'utf8')
-  );
-}
-
 // Webhook verification endpoint (GET request from Facebook)
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -55,27 +41,29 @@ app.get('/webhook', (req, res) => {
 // Webhook endpoint to receive lead data (POST request from Facebook)
 app.post('/webhook', (req, res) => {
   console.log('Received webhook event:', req.body);
-  const signature = req.get('X-Hub-Signature-256');
 
-  // Verify the signature
-  if (!signature || !verifySignature(req.body, signature)) {
-    console.error('Invalid signature');
-    return res.sendStatus(403);
-  }
-
-  const body = JSON.parse(req.body);
+  const body = req.body;
 
   // Check if this is a page subscription
   if (body.object === 'page') {
     // Iterate through each entry
-    body.entry.forEach(entry => {
-      // Get the webhook event
-      entry.changes.forEach(change => {
-        if (change.field === 'leadgen') {
-          console.log('New lead received:', change.value);
-          handleLead(change.value);
-        }
-      });
+    body.entry.forEach(function(entry) {
+
+      // Gets the body of the webhook event
+      let webhookEvent = entry.messaging[0];
+      console.log(webhookEvent);
+
+      // Get the sender PSID
+      let senderPsid = webhookEvent.sender.id;
+      console.log('Sender PSID: ' + senderPsid);
+
+      // Check if the event is a message or postback and
+      // pass the event to the appropriate handler function
+      if (webhookEvent.message) {
+        handleMessage(senderPsid, webhookEvent.message);
+      } else if (webhookEvent.postback) {
+        handlePostback(senderPsid, webhookEvent.postback);
+      }
     });
 
     // Return a '200 OK' response to all events
@@ -86,180 +74,94 @@ app.post('/webhook', (req, res) => {
   }
 });
 
-// Function to subscribe Page to the app (call this once during setup)
-async function subscribePageToApp() {
-  try {
-    const response = await axios.post(
-      `https://graph.facebook.com/${PAGE_ID}/subscribed_apps`,
-      null,
-      {
-        params: {
-          subscribed_fields: 'leadgen',
-          access_token: PAGE_ACCESS_TOKEN
+
+// Handles messages events
+function handleMessage(senderPsid, receivedMessage) {
+  let response;
+
+  // Checks if the message contains text
+  if (receivedMessage.text) {
+    // Create the payload for a basic text message, which
+    // will be added to the body of your request to the Send API
+    response = {
+      'text': `You sent the message: '${receivedMessage.text}'. Now send me an attachment!`
+    };
+  } else if (receivedMessage.attachments) {
+
+    // Get the URL of the message attachment
+    let attachmentUrl = receivedMessage.attachments[0].payload.url;
+    response = {
+      'attachment': {
+        'type': 'template',
+        'payload': {
+          'template_type': 'generic',
+          'elements': [{
+            'title': 'Is this the right picture?',
+            'subtitle': 'Tap a button to answer.',
+            'image_url': attachmentUrl,
+            'buttons': [
+              {
+                'type': 'postback',
+                'title': 'Yes!',
+                'payload': 'yes',
+              },
+              {
+                'type': 'postback',
+                'title': 'No!',
+                'payload': 'no',
+              }
+            ],
+          }]
         }
       }
-    );
-
-    console.log('Page subscription successful:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Error subscribing page to app:', error.response?.data || error.message);
-    throw error;
+    };
   }
+
+  // Send the response message
+  callSendAPI(senderPsid, response);
 }
 
-// Function to check which apps the page has installed
-async function getPageSubscribedApps() {
-  try {
-    const response = await axios.get(
-      `https://graph.facebook.com/${PAGE_ID}/subscribed_apps`,
-      {
-        params: {
-          access_token: PAGE_ACCESS_TOKEN
-        }
-      }
-    );
+// Handles messaging_postbacks events
+function handlePostback(senderPsid, receivedPostback) {
+  let response;
 
-    console.log('Page subscribed apps:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Error getting page subscribed apps:', error.response?.data || error.message);
-    throw error;
+  // Get the payload for the postback
+  let payload = receivedPostback.payload;
+
+  // Set the response based on the postback payload
+  if (payload === 'yes') {
+    response = { 'text': 'Thanks!' };
+  } else if (payload === 'no') {
+    response = { 'text': 'Oops, try sending another image.' };
   }
-}
-async function handleLead(leadData) {
-  const leadgenId = leadData.leadgen_id;
-  const pageId = leadData.page_id;
-  const formId = leadData.form_id;
-  const adgroupId = leadData.adgroup_id; // Note: Facebook docs show adgroup_id
-  const adId = leadData.ad_id;
-  const createdTime = leadData.created_time;
-
-  console.log(`Processing lead: ${leadgenId} from page: ${pageId}`);
-  console.log('Lead data from webhook:', leadData);
-
-  try {
-    // Fetch detailed lead information from Facebook Graph API
-    const leadDetails = await fetchLeadDetails(leadgenId);
-
-    // Process the lead (save to database, send email, etc.)
-    await processLead(leadDetails);
-
-  } catch (error) {
-    console.error('Error handling lead:', error);
-  }
+  // Send the message to acknowledge the postback
+  callSendAPI(senderPsid, response);
 }
 
-// Fetch lead details from Facebook Graph API
-async function fetchLeadDetails(leadgenId) {
-  try {
-    const response = await axios.get(
-      `https://graph.facebook.com/v18.0/${leadgenId}`,
-      {
-        params: {
-          access_token: PAGE_ACCESS_TOKEN,
-          fields: 'id,created_time,field_data,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,is_organic'
-        }
-      }
-    );
-
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching lead details:', error);
-    throw error;
-  }
-}
-
-// Process the lead data
-async function processLead(leadDetails) {
-  console.log('Lead Details:', JSON.stringify(leadDetails, null, 2));
-
-  // Extract field data
-  const fieldData = {};
-  if (leadDetails.field_data) {
-    leadDetails.field_data.forEach(field => {
-      fieldData[field.name] = field.values[0];
-    });
-  }
-
-  console.log('Extracted field data:', fieldData);
-
-  // Example: Save to database
-  const leadRecord = {
-    facebook_lead_id: leadDetails.id,
-    created_time: leadDetails.created_time,
-    ad_id: leadDetails.ad_id,
-    ad_name: leadDetails.ad_name,
-    campaign_id: leadDetails.campaign_id,
-    campaign_name: leadDetails.campaign_name,
-    form_id: leadDetails.form_id,
-    is_organic: leadDetails.is_organic,
-    ...fieldData
+// Sends response messages via the Send API
+function callSendAPI(senderPsid, response) {
+  // Construct the message body
+  let requestBody = {
+    'recipient': {
+      'id': senderPsid
+    },
+    'message': response
   };
 
-  // TODO: Save leadRecord to your database
-  console.log('Lead record to save:', leadRecord);
-
-  // Example: Send notification email
-  await sendLeadNotification(leadRecord);
-
-  // Example: Add to CRM
-  await addToCRM(leadRecord);
-}
-
-// Send lead notification
-async function sendLeadNotification(leadRecord) {
-  console.log('Sending lead notification for:', leadRecord.facebook_lead_id);
-
-  // TODO: Implement email notification
-  // You can use services like SendGrid, Nodemailer, etc.
-
-  const emailData = {
-    to: 'sales@yourcompany.com',
-    subject: 'New Facebook Lead Received',
-    body: `
-      New lead received from Facebook:
-
-      Lead ID: ${leadRecord.facebook_lead_id}
-      Name: ${leadRecord.full_name || 'N/A'}
-      Email: ${leadRecord.email || 'N/A'}
-      Phone: ${leadRecord.phone_number || 'N/A'}
-      Campaign: ${leadRecord.campaign_name || 'N/A'}
-      Created: ${leadRecord.created_time}
-    `
-  };
-
-  console.log('Email notification prepared:', emailData);
-}
-
-// Add lead to CRM
-async function addToCRM(leadRecord) {
-  console.log('Adding lead to CRM:', leadRecord.facebook_lead_id);
-
-  // TODO: Implement CRM integration
-  // Examples: Salesforce, HubSpot, Pipedrive, etc.
-
-  const crmData = {
-    source: 'Facebook Lead Ad',
-    firstName: leadRecord.first_name,
-    lastName: leadRecord.last_name,
-    email: leadRecord.email,
-    phone: leadRecord.phone_number,
-    company: leadRecord.company_name,
-    notes: `Facebook Lead - Campaign: ${leadRecord.campaign_name}, Ad: ${leadRecord.ad_name}`
-  };
-
-  console.log('CRM data prepared:', crmData);
-}
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    service: 'Facebook Leads Webhook'
+  // Send the HTTP request to the Messenger Platform
+  request({
+    'uri': 'https://graph.facebook.com/v2.6/me/messages',
+    'qs': { 'access_token': PAGE_ACCESS_TOKEN },
+    'method': 'POST',
+    'json': requestBody
+  }, (err, _res, _body) => {
+    if (!err) {
+      console.log('Message sent!');
+    } else {
+      console.error('Unable to send message:' + err);
+    }
   });
-});
+}
 
 // Error handling middleware
 app.use((error, req, res, next) => {
