@@ -29,7 +29,7 @@ app.get('/webhook', (req, res) => {
     // Check the mode and token sent are correct
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
       // Respond with 200 OK and challenge token from the request
-      console.log('Webhook verified successfully! by Vercel :', challenge);
+      console.log('Webhook verified successfully! by Vercel for Message :', challenge);
       res.status(200).send(challenge);
     } else {
       // Respond with '403 Forbidden' if verify tokens do not match
