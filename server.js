@@ -22,12 +22,8 @@ app.use(json());
 app.get('/', function (_req, res) {
   res.send('Hello World');
 });
-// app.use(express.static(path.join(__dirname, 'public')));
 
-// Middleware to parse JSON and verify Facebook signature
-// app.use('/webhook', express.raw({ type: 'application/json' }));
-
-// Webhook verification endpoint (GET request from Facebook)
+// ✅ Step 1: Verify webhook (Facebook does this once)
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -38,7 +34,7 @@ app.get('/webhook', (req, res) => {
     // Check the mode and token sent are correct
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
       // Respond with 200 OK and challenge token from the request
-      console.log('Webhook verified successfully! by Vercel for Message :', challenge);
+      console.log('WEBHOOK VERIFIED SUCCESSFULLY!, hub.challenge :', challenge);
       res.status(200).send(challenge);
     } else {
       // Respond with '403 Forbidden' if verify tokens do not match
@@ -47,134 +43,73 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// Webhook endpoint to receive lead data (POST request from Facebook)
-app.post('/webhook', (req, res) => {
-  console.log('Received webhook event:', req.body);
-
+// ✅ Step 2: Handle webhook events (new lead submitted)
+app.post("/webhook", async (req, res) => {
   const body = req.body;
 
-  // Check if this is a page subscription
-  if (body.object === 'page') {
-    // Iterate through each entry
-    body.entry.forEach(function(entry) {
+  if (body.object === "page") {
+    body.entry.forEach(entry => {
+      const changes = entry.changes || [];
+      changes.forEach(change => {
+        if (change.field === "leadgen") {
+          const leadgenId = change.value.leadgen_id;
+          const formId = change.value.form_id;
+          const pageId = change.value.page_id;
 
-      // Gets the body of the webhook event
-      let webhookEvent = entry.messaging[0];
-      console.log(webhookEvent);
+          console.log("New Lead ID:", leadgenId);
 
-      // Get the sender PSID
-      let senderPsid = webhookEvent.sender.id;
-      console.log('Sender PSID: ' + senderPsid);
-
-      // Check if the event is a message or postback and
-      // pass the event to the appropriate handler function
-      if (webhookEvent.message) {
-        handleMessage(senderPsid, webhookEvent.message);
-      } else if (webhookEvent.postback) {
-        handlePostback(senderPsid, webhookEvent.postback);
-      }
+          // fetch lead details
+          fetchLeadData(leadgenId);
+        }
+      });
     });
-
-    // Return a '200 OK' response to all events
-    res.status(200).send('EVENT_RECEIVED');
+    res.sendStatus(200);
   } else {
-    // Return a '404 Not Found' if event is not from a page subscription
     res.sendStatus(404);
   }
 });
 
 
-// Handles messages events
-function handleMessage(senderPsid, receivedMessage) {
-  let response;
-  console.log('Received message for user %d: %s', senderPsid, receivedMessage.text);
-  
-  // Checks if the message contains text
-  if (receivedMessage.text) {
-    // Create the payload for a basic text message, which
-    // will be added to the body of your request to the Send API
-    response = {
-      'text': `You sent the message: '${receivedMessage.text}'. Now send me an attachment!`
-    };
-  } else if (receivedMessage.attachments) {
+// ✅ Helper to fetch lead details
+async function fetchLeadData(leadId) {
+  try {
+    const url = `https://graph.facebook.com/v19.0/${leadId}?access_token=${PAGE_ACCESS_TOKEN}`;
+    const response = await axios.get(url);
+    const lead = response.data;
 
-    // Get the URL of the message attachment
-    let attachmentUrl = receivedMessage.attachments[0].payload.url;
-    response = {
-      'attachment': {
-        'type': 'template',
-        'payload': {
-          'template_type': 'generic',
-          'elements': [{
-            'title': 'Is this the right picture?',
-            'subtitle': 'Tap a button to answer.',
-            'image_url': attachmentUrl,
-            'buttons': [
-              {
-                'type': 'postback',
-                'title': 'Yes!',
-                'payload': 'yes',
-              },
-              {
-                'type': 'postback',
-                'title': 'No!',
-                'payload': 'no',
-              }
-            ],
-          }]
-        }
-      }
-    };
+    console.log("Lead Data:", lead);
+
+    // Store in DB or cache so redirect page can use it
+    // For demo, store in memory
+    leadCache[leadId] = lead;
+  } catch (err) {
+    console.error("Error fetching lead:", err.response?.data || err.message);
   }
-  console.log(response);
-  
-  // Send the response message
-  callSendAPI(senderPsid, response);
 }
 
-// Handles messaging_postbacks events
-function handlePostback(senderPsid, receivedPostback) {
-  let response;
+// Simple in-memory cache (use Redis/DB in production)
+const leadCache = {};
 
-  // Get the payload for the postback
-  let payload = receivedPostback.payload;
+app.get("/redirect", (req, res) => {
+  // In real-world, match lead_id from query/session/cookie
+  const lastLeadId = Object.keys(leadCache).pop();
+  const lead = leadCache[lastLeadId];
 
-  // Set the response based on the postback payload
-  if (payload === 'yes') {
-    response = { 'text': 'Thanks!' };
-  } else if (payload === 'no') {
-    response = { 'text': 'Oops, try sending another image.' };
+  if (!lead) {
+    return res.redirect("https://yourdomain.com/thankyou?error=no-lead");
   }
-  // Send the message to acknowledge the postback
-  callSendAPI(senderPsid, response);
-}
 
-// Sends response messages via the Send API
-function callSendAPI(senderPsid, response) {
-  // Construct the message body
-  let requestBody = {
-    'recipient': {
-      'id': senderPsid
-    },
-    'message': response
-  };
-  console.log(requestBody);
-  console.log(PAGE_ACCESS_TOKEN);
-  
-  // Send the HTTP request to the Messenger Platform
-  request({
-    'uri': 'https://graph.facebook.com/v2.6/me/messages',
-    'qs': { 'access_token': PAGE_ACCESS_TOKEN },
-    'method': 'POST',
-    'json': requestBody
-  }, (err, _res, _body) => {
-    if (!err) {
-      console.log('Message sent!');
-    } else {
-      console.error('Unable to send message:' + err);
-    }
-  });
-}
+  // Extract fields (adjust according to your form fields)
+  const email = lead.field_data.find(f => f.name === "email")?.values[0];
+  const fullName = lead.field_data.find(f => f.name === "full_name")?.values[0];
+
+  const targetUrl = `https://yourdomain.com/offer?email=${encodeURIComponent(
+    email
+  )}&name=${encodeURIComponent(fullName)}&lead_id=${lastLeadId}`;
+
+  res.redirect(targetUrl);
+});
+
 
 // Error handling middleware
 app.use((error, req, res, next) => {
