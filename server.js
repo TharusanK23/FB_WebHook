@@ -120,23 +120,23 @@ app.use((error, req, res, next) => {
 // Start the server
 app.listen(PORT, () => {
   console.log(`Facebook Leads Webhook server running on port ${PORT}`);
-  console.log(`Webhook URL: http://localhost:${PORT}/webhook`);
-  console.log('Make sure to set the following environment variables:');
-  console.log('- WEBHOOK_VERIFY_TOKEN ' + VERIFY_TOKEN);
-  console.log('- FB_APP_SECRET ' + APP_SECRET);
-  console.log('- FB_PAGE_ACCESS_TOKEN (with leads_retrieval permission) ' + PAGE_ACCESS_TOKEN);
-  console.log('- FB_PAGE_ID ' + PAGE_ID);
-  console.log('');
-  console.log('Setup endpoints:');
-  console.log(`- POST http://localhost:${PORT}/setup-page-subscription (run once to subscribe page to app)`);
-  console.log(`- GET http://localhost:${PORT}/check-page-subscriptions (check current subscriptions)`);
-  console.log('');
-  console.log('Required Facebook App permissions:');
-  console.log('- leads_retrieval');
-  console.log('- pages_manage_metadata');
-  console.log('- pages_show_list');
-  console.log('- pages_read_engagement');
-  console.log('- ads_management');
+  // console.log(`Webhook URL: http://localhost:${PORT}/webhook`);
+  // console.log('Make sure to set the following environment variables:');
+  // console.log('- WEBHOOK_VERIFY_TOKEN ' + VERIFY_TOKEN);
+  // console.log('- FB_APP_SECRET ' + APP_SECRET);
+  // console.log('- FB_PAGE_ACCESS_TOKEN (with leads_retrieval permission) ' + PAGE_ACCESS_TOKEN);
+  // console.log('- FB_PAGE_ID ' + PAGE_ID);
+  // console.log('');
+  // console.log('Setup endpoints:');
+  // console.log(`- POST http://localhost:${PORT}/setup-page-subscription (run once to subscribe page to app)`);
+  // console.log(`- GET http://localhost:${PORT}/check-page-subscriptions (check current subscriptions)`);
+  // console.log('');
+  // console.log('Required Facebook App permissions:');
+  // console.log('- leads_retrieval');
+  // console.log('- pages_manage_metadata');
+  // console.log('- pages_show_list');
+  // console.log('- pages_read_engagement');
+  // console.log('- ads_management');
 });
 
 module.exports = app;
