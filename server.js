@@ -39,7 +39,6 @@ app.get('/webhook', (req, res) => {
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
       // Respond with 200 OK and challenge token from the request
       console.log('WEBHOOK VERIFIED SUCCESSFULLY!, hub.challenge :', challenge);
-      res.redirect(301, 'www.google.com');
       res.status(200).send(challenge);
     } else {
       // Respond with '403 Forbidden' if verify tokens do not match
@@ -64,7 +63,7 @@ app.post("/webhook", async (req, res) => {
           const pageId = change.value.page_id;
 
           console.log("New Lead ID:", leadgenId);
-          res.redirect(301, '/new-url');
+          // res.redirect(301, '/new-url');
           // fetch lead details
           fetchLeadData(leadgenId);
         }
