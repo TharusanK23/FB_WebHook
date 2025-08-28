@@ -51,6 +51,8 @@ app.get('/webhook', (req, res) => {
 // ✅ Step 2: Handle webhook events (new lead submitted)
 app.post("/webhook", async (req, res) => {
   const body = req.body;
+  console.log("Webhook event received:", JSON.stringify(body));
+  
 
   if (body.object === "page") {
     body.entry.forEach(entry => {
